@@ -1,5 +1,6 @@
 import {createHash} from "crypto";
 import {FieldValue} from "firebase-admin/firestore";
+
 import {firestore} from "../firebaseAdmin";
 
 const MAX_ATTEMPTS = 5;
@@ -24,12 +25,28 @@ export async function confirmPhoneVerification(
     );
   }
 
+  // Make sure the caller is an active customer.
+  const customerRef = firestore
+    .collection("customers")
+    .doc(userId);
+
+  const customerSnapshot = await customerRef.get();
+
+  if (!customerSnapshot.exists) {
+    throw new Error("Customer profile was not found.");
+  }
+
+  const customer = customerSnapshot.data();
+
+  if (customer?.status !== "active") {
+    throw new Error("Customer account is not active.");
+  }
+
   const verificationRef = firestore
     .collection("phoneVerifications")
     .doc(verificationId);
 
-  const verificationSnapshot =
-    await verificationRef.get();
+  const verificationSnapshot = await verificationRef.get();
 
   if (!verificationSnapshot.exists) {
     throw new Error(
@@ -37,8 +54,7 @@ export async function confirmPhoneVerification(
     );
   }
 
-  const verification =
-    verificationSnapshot.data();
+  const verification = verificationSnapshot.data();
 
   if (!verification) {
     throw new Error(
@@ -72,8 +88,9 @@ export async function confirmPhoneVerification(
     );
   }
 
-  const attempts =
-    Number(verification.attempts ?? 0);
+  const attempts = Number(
+    verification.attempts ?? 0,
+  );
 
   if (attempts >= MAX_ATTEMPTS) {
     await verificationRef.update({
@@ -92,25 +109,37 @@ export async function confirmPhoneVerification(
   );
 
   if (expectedHash !== verification.otpHash) {
+    const nextAttempts = attempts + 1;
+
     await verificationRef.update({
-      attempts: attempts + 1,
+      attempts: nextAttempts,
       updatedAt: FieldValue.serverTimestamp(),
+      ...(nextAttempts >= MAX_ATTEMPTS
+        ? {status: "locked"}
+        : {}),
     });
 
     throw new Error(
-      "Incorrect verification code.",
+      nextAttempts >= MAX_ATTEMPTS
+        ? "Too many incorrect attempts."
+        : "Incorrect verification code.",
     );
   }
 
-  const phoneNumber =
-    verification.phoneNumber;
+  const phoneNumber = verification.phoneNumber;
+
+  if (typeof phoneNumber !== "string") {
+    throw new Error(
+      "Verification request has an invalid phone number.",
+    );
+  }
 
   const phoneRef = firestore
     .collection("phoneNumbers")
     .doc(phoneNumber);
 
-  const customerRef = firestore
-    .collection("customers")
+  const usersRef = firestore
+    .collection("users")
     .doc(userId);
 
   await firestore.runTransaction(
@@ -122,11 +151,26 @@ export async function confirmPhoneVerification(
         const existingUserId =
           phoneSnapshot.data()?.userId;
 
-        if (existingUserId !== userId) {
+        const verified =
+          phoneSnapshot.data()?.verified === true;
+
+        if (
+          verified &&
+          existingUserId !== userId
+        ) {
           throw new Error(
             "This phone number is already registered.",
           );
         }
+
+        transaction.update(phoneRef, {
+          userId,
+          role: "customer",
+          phoneNumber,
+          verified: true,
+          updatedAt:
+            FieldValue.serverTimestamp(),
+        });
       } else {
         transaction.set(phoneRef, {
           userId,
@@ -141,6 +185,13 @@ export async function confirmPhoneVerification(
       }
 
       transaction.update(customerRef, {
+        phoneNumber,
+        phoneVerified: true,
+        updatedAt:
+          FieldValue.serverTimestamp(),
+      });
+
+      transaction.update(usersRef, {
         phoneNumber,
         phoneVerified: true,
         updatedAt:
