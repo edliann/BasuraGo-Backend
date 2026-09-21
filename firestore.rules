@@ -1,0 +1,385 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.admin == true;
+    }
+
+
+    // =========================
+    // USERS
+    // =========================
+    match /users/{userId} {
+
+      // Admins can read all users.
+      // A signed-in user can read only their own user document.
+      allow read: if isAdmin()
+                || (
+                  isSignedIn()
+                  && request.auth.uid == userId
+                );
+
+      // Customers create their own user document.
+      //
+      // The client cannot create an arbitrary role.
+      // The document must belong to the authenticated user.
+      allow create: if isSignedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.role == 'customer'
+                    && request.resource.data.status == 'active';
+
+      // Admins can update any user.
+      //
+      // Users themselves are NOT allowed to modify their role/status.
+      allow update: if isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+
+    // =========================
+    // CUSTOMERS
+    // =========================
+    match /customers/{customerId} {
+
+      // Admins can read all customers.
+      // Customer can read their own profile.
+      allow read: if isAdmin()
+                  || (
+                    isSignedIn()
+                    && request.auth.uid == customerId
+                  );
+
+      // Customer can create only their own customer profile.
+      allow create: if isAdmin()
+                    || (
+                      isSignedIn()
+                      && request.auth.uid == customerId
+                    );
+
+      // Customer can update only their own profile.
+      allow update: if isAdmin()
+                    || (
+                      isSignedIn()
+                      && request.auth.uid == customerId
+                      && request.resource.data.diff(resource.data)
+                        .affectedKeys()
+                        .hasOnly([
+                          'fullName',
+                          'phoneNumber',
+                          'phoneCountryCode',
+                          'onboardingCompleted',
+                          'updatedAt'
+                        ])
+                      && request.resource.data.phoneVerified
+                        == resource.data.phoneVerified
+                      && (
+                        resource.data.phoneVerified == false
+                        || !request.resource.data.diff(resource.data)
+                          .affectedKeys()
+                          .hasAny([
+                            'phoneNumber',
+                            'phoneCountryCode'
+                          ])
+                      )
+                    );
+
+      allow delete: if isAdmin();
+
+      // =========================
+      // CUSTOMER ADDRESSES
+      // =========================
+      match /addresses/{addressId} {
+
+        allow read: if isAdmin()
+                    || (
+                      isSignedIn()
+                      && request.auth.uid == customerId
+                    );
+
+        allow create: if isAdmin()
+                      || (
+                        isSignedIn()
+                        && request.auth.uid == customerId
+                      );
+
+        allow update: if isAdmin()
+                      || (
+                        isSignedIn()
+                        && request.auth.uid == customerId
+                      );
+
+        allow delete: if isAdmin()
+                      || (
+                        isSignedIn()
+                        && request.auth.uid == customerId
+                      );
+      }
+    }
+
+    // =========================
+    // PHONE NUMBERS
+    // =========================
+
+    match /phoneNumbers/{phoneNumber} {
+
+      // Admins can inspect the phone index.
+      allow read: if isAdmin();
+
+      // Clients must NEVER directly create,
+      // modify, or delete phone claims.
+      allow create, update, delete: if false;
+    }
+
+    // =========================
+    // RIDERS
+    // =========================
+
+    match /riders/{riderId} {
+
+      // Admins can read all riders.
+      // A rider can read their own profile.
+      allow read: if isAdmin()
+                  || (
+                    isSignedIn()
+                    && request.auth.uid == riderId
+                  );
+
+      // Only admins create rider profiles.
+      allow create: if isAdmin();
+
+      // Admins can modify rider profiles.
+      allow update: if isAdmin();
+
+      // A rider can update only their own online status.
+      allow update: if isSignedIn()
+                    && request.auth.uid == riderId
+                    && request.resource.data.diff(resource.data)
+                      .affectedKeys()
+                      .hasOnly([
+                        'isOnline',
+                        'updatedAt'
+                      ]);
+
+      // Only admins delete rider profiles.
+      allow delete: if isAdmin();
+
+
+      // Rider live location
+      match /location/{locationId} {
+
+        // Only admins can read rider locations.
+        allow read: if isAdmin();
+
+        // A rider can update only their own location.
+        allow create, update: if isSignedIn()
+                              && request.auth.uid == riderId;
+
+        // Location documents cannot be deleted by clients.
+        allow delete: if false;
+      }
+    }
+
+    // =========================
+    // RIDER APPLICATIONS
+    // =========================
+
+    match /riderApplications/{riderId} {
+
+      // Rider can read their own application.
+      allow read: if isAdmin()
+        || (
+          isSignedIn()
+          && request.auth.uid == riderId
+        );
+
+      // Rider can create their own application.
+      allow create: if isSignedIn()
+                    && request.auth.uid == riderId
+                    && request.resource.data.riderId == riderId
+                    && request.resource.data.status == 'incomplete'
+                    && request.resource.data.basicInformationCompleted == true
+                    && request.resource.data.identityDocumentCompleted == false
+                    && request.resource.data.driversLicenseCompleted == false
+                    && request.resource.data.faceVerificationCompleted == false
+                    && request.resource.data.vehicleInformationCompleted == false;
+
+      // Rider can update verification progress
+      // while the application is incomplete.
+      allow update: if isSignedIn()
+                    && request.auth.uid == riderId
+                    && resource.data.status == 'incomplete'
+                    && request.resource.data.status == 'incomplete'
+                    && request.resource.data.riderId == resource.data.riderId
+                    && request.resource.data.diff(resource.data)
+                      .affectedKeys()
+                      .hasOnly([
+                        'identityDocumentCompleted',
+                        'driversLicenseCompleted',
+                        'faceVerificationCompleted',
+                        'vehicleInformationCompleted',
+                        'vehicleInformation',
+                        'documents',
+                        'updatedAt'
+                      ])
+                    && (
+                      !request.resource.data.diff(resource.data)
+                        .affectedKeys()
+                        .hasAny(['documents'])
+                      ||
+                      (
+                        request.resource.data.documents.governmentId.frontPath
+                          == request.auth.uid
+                          + '/government-id/front.jpg'
+                        &&
+                        request.resource.data.documents.governmentId.backPath
+                          == request.auth.uid
+                          + '/government-id/back.jpg'
+                      )
+                    );
+
+      // Rider can submit a completed application.
+      // Only the status and timestamp may change.
+      allow update: if isSignedIn()
+                    && request.auth.uid == riderId
+                    && resource.data.status == 'incomplete'
+                    && request.resource.data.status == 'submitted'
+                    && request.resource.data.riderId == resource.data.riderId
+                    && request.resource.data.basicInformationCompleted == true
+                    && request.resource.data.identityDocumentCompleted == true
+                    && request.resource.data.driversLicenseCompleted == true
+                    && request.resource.data.faceVerificationCompleted == true
+                    && request.resource.data.vehicleInformationCompleted == true
+                    && request.resource.data.diff(resource.data)
+                      .affectedKeys()
+                      .hasOnly([
+                        'status',
+                        'submittedAt',
+                        'updatedAt'
+                      ]);
+
+      // Admins can manage applications.
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    // =========================
+    // VEHICLES
+    // =========================
+
+    match /vehicles/{vehicleId} {
+
+      allow read: if isAdmin();
+
+      allow create: if isAdmin();
+
+      allow update: if isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // =========================
+    // PICKUPS
+    // =========================
+    match /pickups/{pickupId} {
+
+      // =========================
+      // ADMIN
+      // =========================
+
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+
+
+      // =========================
+      // RIDER - READ AVAILABLE PICKUPS
+      // =========================
+
+      allow read: if isSignedIn()
+                  && resource.data.status == 'pending';
+      allow read: if isSignedIn()
+            && resource.data.riderId == request.auth.uid;
+
+      // =========================
+      // RIDER - ACCEPT PICKUP
+      // =========================
+
+      allow update: if isSignedIn()
+                    && resource.data.status == 'pending'
+                    && request.resource.data.status == 'accepted'
+                    && request.resource.data.riderId == request.auth.uid
+                    && request.resource.data.vehicleId == get(
+                      /databases/$(database)/documents/riders/$(request.auth.uid)
+                    ).data.vehicleId
+                    && request.resource.data.diff(resource.data)
+                      .affectedKeys()
+                      .hasOnly([
+                        'riderId',
+                        'vehicleId',
+                        'status',
+                        'updatedAt'
+                      ]);
+
+      allow update: if isSignedIn()
+                    && resource.data.riderId == request.auth.uid
+                    && resource.data.status == 'accepted'
+                    && request.resource.data.riderId == request.auth.uid
+                    && request.resource.data.status == 'in_progress'
+                    && request.resource.data.diff(resource.data)
+                      .affectedKeys()
+                      .hasOnly([
+                        'status',
+                        'updatedAt'
+                      ]);
+
+      allow update: if isSignedIn()
+                    && resource.data.riderId == request.auth.uid
+                    && resource.data.status == 'in_progress'
+                    && request.resource.data.riderId == request.auth.uid
+                    && request.resource.data.status == 'completed'
+                    && request.resource.data.diff(resource.data)
+                      .affectedKeys()
+                      .hasOnly([
+                        'status',
+                        'completedAt',
+                        'updatedAt'
+                      ]);
+    }
+
+    // =========================
+    // WASTE TYPES
+    // =========================
+    match /wasteTypes/{wasteTypeId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+    
+    // =========================
+    // RIDER INVITATIONS
+    // =========================
+
+    match /riderInvitations/{invitationId} {
+      // Only admins can create invitations.
+      allow create: if isAdmin();
+
+      // Only admins can view invitations.
+      allow read: if isAdmin();
+
+      // Only admins can modify invitations.
+      allow update: if isAdmin();
+
+      // Only admins can delete/revoke invitations.
+      allow delete: if isAdmin();
+    }
+  }
+}
