@@ -7,21 +7,46 @@ import {smsProvider} from "../sms/provider";
 const OTP_LENGTH = 6;
 const OTP_EXPIRATION_MS = 5 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
-
+/**
+ * Normalizes a phone number for validation and storage.
+ *
+ * @param {string} phoneNumber The phone number to normalize.
+ * @return {string} The normalized phone number.
+ */
 function normalizePhoneNumber(phoneNumber: string): string {
   return phoneNumber.trim().replace(/[^\d+]/g, "");
 }
 
+/**
+ * Checks whether a phone number uses valid E.164 formatting.
+ *
+ * @param {string} phoneNumber The phone number to validate.
+ * @return {boolean} True when the phone number is valid E.164 format.
+ */
 function isValidE164(phoneNumber: string): boolean {
   return /^\+[1-9]\d{7,14}$/.test(phoneNumber);
 }
 
+/**
+ * Hashes an OTP using the supplied salt.
+ *
+ * @param {string} otp The one-time password.
+ * @param {string} salt The salt used when hashing the OTP.
+ * @return {string} The SHA-256 hash of the salted OTP.
+ */
 function hashOtp(otp: string, salt: string): string {
   return createHash("sha256")
     .update(`${salt}:${otp}`)
     .digest("hex");
 }
 
+/**
+ * Creates the deterministic verification document ID.
+ *
+ * @param {string} userId The authenticated user's ID.
+ * @param {string} phoneNumber The normalized phone number.
+ * @return {string} The verification document ID.
+ */
 function getVerificationDocumentId(
   userId: string,
   phoneNumber: string,
@@ -31,6 +56,13 @@ function getVerificationDocumentId(
     .digest("hex");
 }
 
+/**
+ * Creates and sends a phone verification OTP.
+ *
+ * @param {string} userId The authenticated customer's user ID.
+ * @param {string} phoneNumberInput The phone number submitted by the customer.
+ * @return {Promise<object>} Verification metadata for the client.
+ */
 export async function requestPhoneVerification(
   userId: string,
   phoneNumberInput: string,
@@ -102,7 +134,8 @@ export async function requestPhoneVerification(
       );
 
       throw new Error(
-        `Please wait ${remainingSeconds} seconds before requesting another code.`,
+        `Please wait ${remainingSeconds} seconds before requesting ` +
+      "another code.",
       );
     }
   }

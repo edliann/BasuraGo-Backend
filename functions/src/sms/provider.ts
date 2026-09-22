@@ -15,6 +15,9 @@ export interface SmsProvider {
  * complete verification flow before connecting PhilSMS.
  */
 export class DevelopmentSmsProvider implements SmsProvider {
+  /**
+     * Sends an SMS through the development SMS provider.
+     */
   async send({to, message}: SmsMessage): Promise<void> {
     console.log("========================================");
     console.log("DEVELOPMENT SMS");

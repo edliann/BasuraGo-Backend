@@ -5,6 +5,13 @@ import {firestore} from "../firebaseAdmin";
 
 const MAX_ATTEMPTS = 5;
 
+/**
+ * Hashes an OTP using the supplied salt.
+ *
+ * @param {string} otp The one-time password.
+ * @param {string} salt The salt used when hashing the OTP.
+ * @return {string} The SHA-256 hash of the salted OTP.
+ */
 function hashOtp(
   otp: string,
   salt: string,
@@ -14,6 +21,14 @@ function hashOtp(
     .digest("hex");
 }
 
+/**
+ * Confirms a customer's phone verification request.
+ *
+ * @param {string} userId The authenticated customer's user ID.
+ * @param {string} verificationId The verification request ID.
+ * @param {string} otp The six-digit verification code.
+ * @return {Promise<void>} A promise that resolves when verification succeeds.
+ */
 export async function confirmPhoneVerification(
   userId: string,
   verificationId: string,
@@ -114,15 +129,15 @@ export async function confirmPhoneVerification(
     await verificationRef.update({
       attempts: nextAttempts,
       updatedAt: FieldValue.serverTimestamp(),
-      ...(nextAttempts >= MAX_ATTEMPTS
-        ? {status: "locked"}
-        : {}),
+      ...(nextAttempts >= MAX_ATTEMPTS ?
+        {status: "locked"} :
+        {}),
     });
 
     throw new Error(
-      nextAttempts >= MAX_ATTEMPTS
-        ? "Too many incorrect attempts."
-        : "Incorrect verification code.",
+      nextAttempts >= MAX_ATTEMPTS ?
+        "Too many incorrect attempts." :
+        "Incorrect verification code.",
     );
   }
 
