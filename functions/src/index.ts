@@ -5,6 +5,8 @@ import {firestore} from "./firebaseAdmin";
 import {requestPhoneVerification} from
   "./phone/requestVerification";
 
+import {philSmsApiToken} from "./sms/provider";
+
 import {confirmPhoneVerification} from
   "./phone/confirmVerification";
 
@@ -17,6 +19,11 @@ import {
   StaffStatus,
   updateStaffStatus,
 } from "./staff/updateStaffStatus";
+
+import {
+  CustomerStatus,
+  updateCustomerStatus,
+} from "./customers/updateCustomerStatus";
 
 void firestore;
 
@@ -206,8 +213,8 @@ export const updateStaffStatusFunction = onCall(
   },
 );
 
-export const requestPhoneVerificationFunction =
-  onCall(async (request) => {
+export const updateCustomerStatusFunction = onCall(
+  async (request) => {
     if (!request.auth) {
       throw new HttpsError(
         "unauthenticated",
@@ -215,41 +222,120 @@ export const requestPhoneVerificationFunction =
       );
     }
 
+    const caller = await getAuth().getUser(
+      request.auth.uid,
+    );
+
+    if (caller.customClaims?.admin !== true) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only Admin staff can change customer account status.",
+      );
+    }
+
     const data = request.data as {
-      phoneNumber?: unknown;
+      customerId?: unknown;
+      status?: unknown;
     };
 
     if (
-      typeof data.phoneNumber !== "string"
+      typeof data.customerId !== "string" ||
+      typeof data.status !== "string"
     ) {
       throw new HttpsError(
         "invalid-argument",
-        "phoneNumber is required.",
+        "customerId and status are required.",
+      );
+    }
+
+    if (
+      data.status !== "active" &&
+      data.status !== "inactive" &&
+      data.status !== "suspended"
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Invalid customer account status.",
       );
     }
 
     try {
-      return await requestPhoneVerification(
-        request.auth.uid,
-        data.phoneNumber,
+      await updateCustomerStatus(
+        data.customerId,
+        data.status as CustomerStatus,
       );
+
+      return {
+        success: true,
+      };
     } catch (error) {
       console.error(
-        "Failed to request phone verification:",
+        "Failed to update customer status:",
         error,
       );
 
       const message =
         error instanceof Error ?
           error.message :
-          "Unable to request verification.";
+          "Unable to update customer status.";
 
       throw new HttpsError(
         "failed-precondition",
         message,
       );
     }
-  });
+  },
+);
+
+export const requestPhoneVerificationFunction =
+  onCall(
+    {
+      secrets: [philSmsApiToken],
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new HttpsError(
+          "unauthenticated",
+          "You must be signed in.",
+        );
+      }
+
+      const data = request.data as {
+        phoneNumber?: unknown;
+      };
+
+      if (
+        typeof data.phoneNumber !== "string"
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "phoneNumber is required.",
+        );
+      }
+
+      try {
+        return await requestPhoneVerification(
+          request.auth.uid,
+          data.phoneNumber,
+        );
+      } catch (error) {
+        console.error(
+          "Failed to request phone verification:",
+          error,
+        );
+
+        const message =
+          error instanceof Error ?
+            error.message :
+            "Unable to request verification.";
+
+        throw new HttpsError(
+          "failed-precondition",
+          message,
+        );
+      }
+    },
+  );
 
 export const confirmPhoneVerificationFunction =
   onCall(async (request) => {
