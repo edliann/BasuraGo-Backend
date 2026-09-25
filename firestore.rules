@@ -215,8 +215,11 @@ service cloud.firestore {
       // while the application is incomplete.
       allow update: if isSignedIn()
                     && request.auth.uid == riderId
-                    && resource.data.status == 'incomplete'
-                    && request.resource.data.status == 'incomplete'
+                    && (
+                      resource.data.status == 'incomplete'
+                      || resource.data.status == 'needs_correction'
+                    )
+                    && request.resource.data.status == resource.data.status
                     && request.resource.data.riderId == resource.data.riderId
                     && request.resource.data.diff(resource.data)
                       .affectedKeys()
@@ -249,7 +252,10 @@ service cloud.firestore {
       // Only the status and timestamp may change.
       allow update: if isSignedIn()
                     && request.auth.uid == riderId
-                    && resource.data.status == 'incomplete'
+                    && (
+                      resource.data.status == 'incomplete'
+                      || resource.data.status == 'needs_correction'
+                    )
                     && request.resource.data.status == 'submitted'
                     && request.resource.data.riderId == resource.data.riderId
                     && request.resource.data.basicInformationCompleted == true

@@ -37,6 +37,18 @@ import {
   createRiderAccountFromInvitationService,
 } from "./riders/createRiderAccountFromInvitation";
 
+import {
+  getRiderApplication,
+} from "./riders/getRiderApplication";
+
+import {
+  reviewRiderApplication,
+} from "./riders/reviewRiderApplication";
+
+import type {
+  ReviewRiderApplicationInput,
+} from "./riders/reviewRiderApplication";
+
 setGlobalOptions({
   maxInstances: 10,
 });
@@ -522,3 +534,44 @@ export const createRiderAccountFromInvitation =
       password: data.password,
     });
   });
+
+export const getRiderApplicationFunction =
+  onCall(
+    async (request) => {
+      if (
+        !request.auth?.token?.admin
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "Admin access is required.",
+        );
+      }
+
+      const riderId =
+        typeof request.data?.riderId ===
+        "string" ?
+          request.data.riderId :
+          "";
+
+      return getRiderApplication(riderId);
+    },
+  );
+
+export const reviewRiderApplicationFunction =
+  onCall(
+    async (request) => {
+      if (
+        !request.auth?.token?.admin
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "Admin access is required.",
+        );
+      }
+
+      const input =
+        request.data as ReviewRiderApplicationInput;
+
+      return reviewRiderApplication(input);
+    },
+  );
