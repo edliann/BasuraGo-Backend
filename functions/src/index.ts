@@ -1,6 +1,5 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {setGlobalOptions} from "firebase-functions";
-import {firestore} from "./firebaseAdmin";
 
 import {requestPhoneVerification} from
   "./phone/requestVerification";
@@ -25,7 +24,18 @@ import {
   updateCustomerStatus,
 } from "./customers/updateCustomerStatus";
 
-void firestore;
+import {
+  createRiderInvitation as createRiderInvitationService,
+} from "./riders/createRiderInvitation";
+
+import {
+  getRiderInvitation as getRiderInvitationService,
+} from "./riders/getRiderInvitation";
+
+import {
+  createRiderAccountFromInvitation as
+  createRiderAccountFromInvitationService,
+} from "./riders/createRiderAccountFromInvitation";
 
 setGlobalOptions({
   maxInstances: 10,
@@ -387,4 +397,128 @@ export const confirmPhoneVerificationFunction =
         message,
       );
     }
+  });
+
+/**
+ * Creates a rider invitation for an authenticated Admin.
+ */
+export const createRiderInvitation = onCall(
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "You must be signed in.",
+      );
+    }
+
+    const caller = await getAuth().getUser(
+      request.auth.uid,
+    );
+
+    if (caller.customClaims?.admin !== true) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only Admin staff can create rider invitations.",
+      );
+    }
+
+    const data = request.data as {
+      email?: unknown;
+      phoneNumber?: unknown;
+    };
+
+    if (
+      typeof data.email !== "string" ||
+      typeof data.phoneNumber !== "string"
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "email and phoneNumber are required.",
+      );
+    }
+
+    try {
+      return await createRiderInvitationService(
+        {
+          email: data.email,
+          phoneNumber: data.phoneNumber,
+        },
+        request.auth.uid,
+      );
+    } catch (error) {
+      console.error(
+        "Failed to create rider invitation:",
+        error,
+      );
+
+      const message =
+        error instanceof Error ?
+          error.message :
+          "Unable to create rider invitation.";
+
+      throw new HttpsError(
+        "failed-precondition",
+        message,
+      );
+    }
+  },
+);
+
+/**
+ * Retrieves and validates a rider invitation.
+ */
+export const getRiderInvitation = onCall(
+  async (request) => {
+    const data = request.data as {
+      invitationId?: unknown;
+      invitationToken?: unknown;
+    };
+
+    if (
+      typeof data.invitationId !== "string" ||
+      typeof data.invitationToken !== "string"
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "invitationId and invitationToken are required.",
+      );
+    }
+
+    return await getRiderInvitationService({
+      invitationId: data.invitationId,
+      invitationToken: data.invitationToken,
+    });
+  },
+);
+
+/**
+ * Creates a rider account from a valid invitation.
+ */
+export const createRiderAccountFromInvitation =
+  onCall(async (request) => {
+    const data = request.data as {
+      invitationId?: unknown;
+      invitationToken?: unknown;
+      fullName?: unknown;
+      password?: unknown;
+    };
+
+    if (
+      typeof data.invitationId !== "string" ||
+      typeof data.invitationToken !== "string" ||
+      typeof data.fullName !== "string" ||
+      typeof data.password !== "string"
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "invitationId, invitationToken, fullName, and password are required.",
+      );
+    }
+
+    return await createRiderAccountFromInvitationService({
+      invitationId: data.invitationId,
+      invitationToken: data.invitationToken,
+      fullName: data.fullName,
+      password: data.password,
+    });
   });
